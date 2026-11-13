@@ -1,0 +1,171 @@
+{
+  "name": "06 Kontrola: zůstatky, alert a týdenní report",
+  "flow": [
+    {
+      "id": 1,
+      "module": "http:ActionSendDataAPIKeyAuth",
+      "version": 3,
+      "mapper": {
+        "url": "https://api.YOUR-BANK.cz/aisp/my/accounts/YOUR_ACCOUNT_ID/balance",
+        "method": "get",
+        "parseResponse": true
+      },
+      "parameters": {
+        "auth": null,
+        "handleErrors": false
+      }
+    },
+    {
+      "id": 2,
+      "module": "google-sheets:updateCell",
+      "version": 2,
+      "mapper": {
+        "cell": "B13",
+        "from": "drive",
+        "value": "{{replace(1.data.balances[2].amount.value; \".\"; \",\")}}",
+        "sheetId": "Kontrola",
+        "spreadsheetId": "/YOUR_SPREADSHEET_ID",
+        "valueInputOption": "USER_ENTERED"
+      },
+      "parameters": {
+        "__IMTCONN__": null
+      }
+    },
+    {
+      "id": 7,
+      "module": "builtin:BasicRouter",
+      "version": 1,
+      "mapper": null,
+      "parameters": {},
+      "routes": [
+        {
+          "flow": [
+            {
+              "id": 10,
+              "module": "google-sheets:getCell",
+              "version": 2,
+              "mapper": {
+                "cell": "B2",
+                "from": "drive",
+                "sheetId": "Kontrola",
+                "spreadsheetId": "/YOUR_SPREADSHEET_ID",
+                "valueRenderOption": "FORMATTED_VALUE"
+              },
+              "parameters": {
+                "__IMTCONN__": null
+              }
+            },
+            {
+              "id": 11,
+              "module": "google-sheets:getCell",
+              "version": 2,
+              "mapper": {
+                "cell": "A32",
+                "from": "drive",
+                "sheetId": "Kontrola",
+                "spreadsheetId": "/YOUR_SPREADSHEET_ID",
+                "valueRenderOption": "FORMATTED_VALUE"
+              },
+              "parameters": {
+                "__IMTCONN__": null
+              },
+              "filter": {
+                "name": "stav ALERT",
+                "conditions": [
+                  [
+                    {
+                      "a": "{{10.value}}",
+                      "b": "ALERT",
+                      "o": "text:equal"
+                    }
+                  ]
+                ]
+              }
+            },
+            {
+              "id": 12,
+              "module": "google-email:sendAnEmail",
+              "version": 4,
+              "mapper": {
+                "to": [
+                  "majitel@example.com"
+                ],
+                "content": "{{11.value}}",
+                "subject": "Kontrola financí: něco nesedí",
+                "bodyType": "rawHtml"
+              },
+              "parameters": {
+                "__IMTCONN__": null
+              }
+            }
+          ]
+        },
+        {
+          "flow": [
+            {
+              "id": 20,
+              "module": "google-sheets:getCell",
+              "version": 2,
+              "mapper": {
+                "cell": "A31",
+                "from": "drive",
+                "sheetId": "Kontrola",
+                "spreadsheetId": "/YOUR_SPREADSHEET_ID",
+                "valueRenderOption": "FORMATTED_VALUE"
+              },
+              "parameters": {
+                "__IMTCONN__": null
+              },
+              "filter": {
+                "name": "pondělí",
+                "conditions": [
+                  [
+                    {
+                      "a": "{{formatDate(now; \"E\"; \"Europe/Prague\")}}",
+                      "b": "1",
+                      "o": "number:equal"
+                    }
+                  ]
+                ]
+              }
+            },
+            {
+              "id": 21,
+              "module": "google-email:sendAnEmail",
+              "version": 4,
+              "mapper": {
+                "to": [
+                  "tym@example.com"
+                ],
+                "content": "{{20.value}}",
+                "subject": "Týdenní finanční přehled",
+                "bodyType": "rawHtml"
+              },
+              "parameters": {
+                "__IMTCONN__": null
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "instant": false,
+    "version": 1,
+    "scenario": {
+      "roundtrips": 1,
+      "maxErrors": 3,
+      "autoCommit": true,
+      "autoCommitTriggerLast": true,
+      "sequential": true,
+      "confidential": false,
+      "dataloss": false,
+      "dlq": false
+    }
+  },
+  "scheduling": {
+    "type": "daily",
+    "time": "07:30"
+  }
+}

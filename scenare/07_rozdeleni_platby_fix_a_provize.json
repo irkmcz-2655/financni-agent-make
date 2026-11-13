@@ -1,0 +1,161 @@
+{
+  "name": "07 Banka: rozdělení výplaty obchodníka na fix a provizi",
+  "flow": [
+    {
+      "id": 1,
+      "module": "google-sheets:filterRows",
+      "version": 2,
+      "mapper": {
+        "from": "drive",
+        "limit": 50,
+        "sheetId": "Banka",
+        "spreadsheetId": "/YOUR_SPREADSHEET_ID",
+        "tableFirstRow": "A4:M4",
+        "includesHeaders": true,
+        "filter": [
+          [
+            {
+              "a": "G",
+              "b": "Obchodnik",
+              "o": "text:equal"
+            },
+            {
+              "a": "H",
+              "b": "Jednorazove",
+              "o": "text:equal"
+            },
+            {
+              "a": "I",
+              "b": "rozděleno",
+              "o": "text:notcontain"
+            }
+          ]
+        ]
+      },
+      "parameters": {
+        "__IMTCONN__": null
+      }
+    },
+    {
+      "id": 2,
+      "module": "builtin:BasicRouter",
+      "version": 1,
+      "mapper": null,
+      "parameters": {},
+      "routes": [
+        {
+          "flow": [
+            {
+              "id": 3,
+              "module": "google-sheets:addRow",
+              "version": 2,
+              "mapper": {
+                "from": "drive",
+                "mode": "select",
+                "values": {
+                  "0": "{{1.`0`}}",
+                  "1": "{{1.`1`}}",
+                  "2": "{{1.`2`}}",
+                  "3": "Provize obchodníka",
+                  "5": "{{replace(replace(1.`5`; \",\"; \".\") - FIX_CASTKA; \".\"; \",\")}}",
+                  "6": "Obchodnik",
+                  "7": "Jednorazove",
+                  "8": "provize (rozděleno z platby)",
+                  "12": "{{1.`12`}}|provize"
+                },
+                "sheetId": "Banka",
+                "spreadsheetId": "/YOUR_SPREADSHEET_ID",
+                "includesHeaders": true,
+                "insertDataOption": "INSERT_ROWS",
+                "useColumnHeaders": false,
+                "valueInputOption": "USER_ENTERED",
+                "insertUnformatted": false
+              },
+              "parameters": {
+                "__IMTCONN__": null
+              },
+              "filter": {
+                "name": "nad fixní částku",
+                "conditions": [
+                  [
+                    {
+                      "a": "{{replace(1.`5`; \",\"; \".\")}}",
+                      "b": "FIX_CASTKA",
+                      "o": "number:greater"
+                    }
+                  ]
+                ]
+              }
+            },
+            {
+              "id": 4,
+              "module": "google-sheets:updateCell",
+              "version": 2,
+              "mapper": {
+                "cell": "F{{1.__ROW_NUMBER__}}",
+                "from": "drive",
+                "value": "FIX_CASTKA",
+                "sheetId": "Banka",
+                "spreadsheetId": "/YOUR_SPREADSHEET_ID",
+                "valueInputOption": "USER_ENTERED"
+              },
+              "parameters": {
+                "__IMTCONN__": null
+              }
+            },
+            {
+              "id": 5,
+              "module": "google-sheets:updateCell",
+              "version": 2,
+              "mapper": {
+                "cell": "H{{1.__ROW_NUMBER__}}",
+                "from": "drive",
+                "value": "Fixni",
+                "sheetId": "Banka",
+                "spreadsheetId": "/YOUR_SPREADSHEET_ID",
+                "valueInputOption": "USER_ENTERED"
+              },
+              "parameters": {
+                "__IMTCONN__": null
+              }
+            },
+            {
+              "id": 6,
+              "module": "google-sheets:updateCell",
+              "version": 2,
+              "mapper": {
+                "cell": "I{{1.__ROW_NUMBER__}}",
+                "from": "drive",
+                "value": "fix, rozděleno (celkem {{1.`5`}})",
+                "sheetId": "Banka",
+                "spreadsheetId": "/YOUR_SPREADSHEET_ID",
+                "valueInputOption": "USER_ENTERED"
+              },
+              "parameters": {
+                "__IMTCONN__": null
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "instant": false,
+    "version": 1,
+    "scenario": {
+      "roundtrips": 1,
+      "maxErrors": 3,
+      "autoCommit": true,
+      "autoCommitTriggerLast": true,
+      "sequential": true,
+      "confidential": false,
+      "dataloss": false,
+      "dlq": false
+    }
+  },
+  "scheduling": {
+    "type": "daily",
+    "time": "07:28"
+  }
+}

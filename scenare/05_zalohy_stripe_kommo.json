@@ -1,0 +1,518 @@
+{
+  "name": "05 Záloha ve Stripe -> najít lead v Kommo -> úkol + tabulka Zálohy",
+  "flow": [
+    {
+      "id": 1,
+      "module": "stripe:watchEvents",
+      "version": 1,
+      "mapper": {},
+      "parameters": {
+        "__IMTHOOK__": null
+      }
+    },
+    {
+      "id": 9,
+      "module": "google-email:sendAnEmail",
+      "version": 4,
+      "mapper": {
+        "to": [
+          "tym@example.com"
+        ],
+        "content": "<p>Záloha byla zaplacena.</p><p>Jméno: {{1.object.customer_details.name}}<br>E-mail: {{1.object.customer_details.email}}<br>Částka: {{1.object.amount_total / 100}} Kč</p><p>Lead v Kommo se hledá automaticky. Pokud se najde právě jeden, přesune se do etapy Záloha zaplacena a vznikne úkol Připravit smlouvu. Pokud je shoda nejistá, úkol začíná slovem OVĚŘIT.</p>",
+        "subject": "Záloha zaplacena: {{1.object.customer_details.name}}",
+        "bodyType": "rawHtml"
+      },
+      "parameters": {
+        "__IMTCONN__": null
+      },
+      "filter": {
+        "name": "jen platební odkaz na zálohu",
+        "conditions": [
+          [
+            {
+              "a": "{{1.object.payment_link}}",
+              "b": "YOUR_STRIPE_PAYMENT_LINK_ID",
+              "o": "text:equal"
+            },
+            {
+              "a": "{{1.object.payment_status}}",
+              "b": "paid",
+              "o": "text:equal"
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "id": 10,
+      "module": "amo-crm:MakeAPICall",
+      "version": 2,
+      "mapper": {
+        "url": "/v4/contacts?query={{lower(1.object.customer_details.email)}}&with=leads",
+        "method": "GET",
+        "qs": [],
+        "headers": []
+      },
+      "parameters": {
+        "__IMTCONN__": null
+      }
+    },
+    {
+      "id": 12,
+      "module": "util:SetVariables",
+      "version": 1,
+      "mapper": {
+        "scope": "roundtrip",
+        "variables": [
+          {
+            "name": "ids",
+            "value": "{{ifempty(join(map(flatten(map(map(ifempty(10.body._embedded.contacts; emptyarray); \"_embedded\"); \"leads\")); \"id\"); \"&filter[id][]=\"); \"0\")}}"
+          }
+        ]
+      },
+      "parameters": {}
+    },
+    {
+      "id": 11,
+      "module": "amo-crm:MakeAPICall",
+      "version": 2,
+      "mapper": {
+        "url": "/v4/leads?filter[id][]={{12.ids}}&order[updated_at]=desc&filter[statuses][0][pipeline_id]=YOUR_PIPELINE_ID&filter[statuses][0][status_id]=YOUR_ACTIVE_STAGE_IDS",
+        "method": "GET",
+        "qs": [],
+        "headers": []
+      },
+      "parameters": {
+        "__IMTCONN__": null
+      }
+    },
+    {
+      "id": 20,
+      "module": "amo-crm:MakeAPICall",
+      "version": 2,
+      "mapper": {
+        "url": "/v4/contacts?query={{if(length(1.object.customer_details.name) > 4; 1.object.customer_details.name; \"zzz-nomatch\")}}&with=leads",
+        "method": "GET",
+        "qs": [],
+        "headers": []
+      },
+      "parameters": {
+        "__IMTCONN__": null
+      }
+    },
+    {
+      "id": 21,
+      "module": "util:SetVariables",
+      "version": 1,
+      "mapper": {
+        "scope": "roundtrip",
+        "variables": [
+          {
+            "name": "ids",
+            "value": "{{ifempty(join(map(flatten(map(map(ifempty(20.body._embedded.contacts; emptyarray); \"_embedded\"); \"leads\")); \"id\"); \"&filter[id][]=\"); \"0\")}}"
+          }
+        ]
+      },
+      "parameters": {}
+    },
+    {
+      "id": 22,
+      "module": "amo-crm:MakeAPICall",
+      "version": 2,
+      "mapper": {
+        "url": "/v4/leads?filter[id][]={{21.ids}}&order[updated_at]=desc&filter[statuses][0][pipeline_id]=YOUR_PIPELINE_ID&filter[statuses][0][status_id]=YOUR_ACTIVE_STAGE_IDS",
+        "method": "GET",
+        "qs": [],
+        "headers": []
+      },
+      "parameters": {
+        "__IMTCONN__": null
+      }
+    },
+    {
+      "id": 30,
+      "module": "builtin:BasicRouter",
+      "version": 1,
+      "mapper": null,
+      "parameters": {},
+      "routes": [
+        {
+          "flow": [
+            {
+              "id": 13,
+              "module": "amo-crm:MakeAPICall",
+              "version": 2,
+              "mapper": {
+                "url": "/v4/leads/{{11.body._embedded.leads[1].id}}",
+                "method": "PATCH",
+                "qs": [],
+                "headers": [],
+                "body": "{\"pipeline_id\": YOUR_PIPELINE_ID, \"status_id\": YOUR_STAGE_DEPOSIT_PAID_ID, \"tags_to_add\": [{\"name\": \"V tabulce Zálohy\"}]}"
+              },
+              "parameters": {
+                "__IMTCONN__": null
+              },
+              "filter": {
+                "name": "právě jeden podle e-mailu",
+                "conditions": [
+                  [
+                    {
+                      "a": "{{length(ifempty(11.body._embedded.leads; emptyarray))}}",
+                      "b": "1",
+                      "o": "number:equal"
+                    }
+                  ]
+                ]
+              }
+            },
+            {
+              "id": 14,
+              "module": "amo-crm:MakeAPICall",
+              "version": 2,
+              "mapper": {
+                "url": "/v4/leads/{{11.body._embedded.leads[1].id}}/notes",
+                "method": "POST",
+                "qs": [],
+                "headers": [],
+                "body": "[{\"note_type\": \"common\", \"params\": {\"text\": \"Záloha {{1.object.amount_total / 100}} Kč zaplacena přes Stripe, lead přesunut automaticky.\"}}]"
+              },
+              "parameters": {
+                "__IMTCONN__": null
+              }
+            },
+            {
+              "id": 15,
+              "module": "amo-crm:MakeAPICall",
+              "version": 2,
+              "mapper": {
+                "url": "/v4/tasks",
+                "method": "POST",
+                "qs": [],
+                "headers": [],
+                "body": "[{\"text\": \"Připravit smlouvu: {{1.object.customer_details.name}} ({{lower(1.object.customer_details.email)}})\", \"complete_till\": {{formatDate(addHours(now; 2); \"X\")}}, \"entity_id\": {{11.body._embedded.leads[1].id}}, \"entity_type\": \"leads\", \"responsible_user_id\": YOUR_CRM_USER_ID}]"
+              },
+              "parameters": {
+                "__IMTCONN__": null
+              }
+            },
+            {
+              "id": 16,
+              "module": "google-sheets:addRow",
+              "version": 2,
+              "mapper": {
+                "from": "drive",
+                "mode": "select",
+                "values": {
+                  "0": "{{formatDate(now; \"DD.MM.YYYY HH:mm\"; \"Europe/Prague\")}}",
+                  "1": "{{1.object.customer_details.name}}",
+                  "2": "{{lower(1.object.customer_details.email)}}",
+                  "3": "'{{1.object.customer_details.phone}}",
+                  "4": "{{1.object.amount_total / 100}}",
+                  "5": "{{1.object.id}}",
+                  "6": "{{get(first(ifempty(first(map(ifempty(11.body._embedded.leads[1].custom_fields_values; emptyarray); \"values\"; \"field_id\"; YOUR_COURSE_FIELD_ID)); emptyarray)); \"value\")}}",
+                  "7": "{{11.body._embedded.leads[1].responsible_user_id}}",
+                  "8": "{{11.body._embedded.leads[1].price}}",
+                  "9": "https://YOUR-ACCOUNT.kommo.com/leads/detail/{{11.body._embedded.leads[1].id}}",
+                  "10": "shoda podle e-mailu"
+                },
+                "sheetId": "Zálohy",
+                "spreadsheetId": "/YOUR_SPREADSHEET_ID",
+                "includesHeaders": true,
+                "insertDataOption": "INSERT_ROWS",
+                "useColumnHeaders": false,
+                "valueInputOption": "USER_ENTERED",
+                "insertUnformatted": false
+              },
+              "parameters": {
+                "__IMTCONN__": null
+              }
+            }
+          ]
+        },
+        {
+          "flow": [
+            {
+              "id": 50,
+              "module": "amo-crm:MakeAPICall",
+              "version": 2,
+              "mapper": {
+                "url": "/v4/leads/{{11.body._embedded.leads[1].id}}",
+                "method": "PATCH",
+                "qs": [],
+                "headers": [],
+                "body": "{\"pipeline_id\": YOUR_PIPELINE_ID, \"status_id\": YOUR_STAGE_DEPOSIT_PAID_ID, \"tags_to_add\": [{\"name\": \"V tabulce Zálohy\"}, {\"name\": \"Zkontrolovat zálohu\"}]}"
+              },
+              "parameters": {
+                "__IMTCONN__": null
+              },
+              "filter": {
+                "name": "více podle e-mailu",
+                "conditions": [
+                  [
+                    {
+                      "a": "{{length(ifempty(11.body._embedded.leads; emptyarray))}}",
+                      "b": "1",
+                      "o": "number:greater"
+                    }
+                  ]
+                ]
+              }
+            },
+            {
+              "id": 51,
+              "module": "amo-crm:MakeAPICall",
+              "version": 2,
+              "mapper": {
+                "url": "/v4/leads/{{11.body._embedded.leads[1].id}}/notes",
+                "method": "POST",
+                "qs": [],
+                "headers": [],
+                "body": "[{\"note_type\": \"common\", \"params\": {\"text\": \"ZKONTROLOVAT: podle e-mailu se našlo více leadů, vybrán nejnověji upravený.\"}}]"
+              },
+              "parameters": {
+                "__IMTCONN__": null
+              }
+            },
+            {
+              "id": 52,
+              "module": "amo-crm:MakeAPICall",
+              "version": 2,
+              "mapper": {
+                "url": "/v4/tasks",
+                "method": "POST",
+                "qs": [],
+                "headers": [],
+                "body": "[{\"text\": \"OVĚŘIT, který lead je správný: {{1.object.customer_details.name}} ({{lower(1.object.customer_details.email)}})\", \"complete_till\": {{formatDate(addHours(now; 2); \"X\")}}, \"entity_id\": {{11.body._embedded.leads[1].id}}, \"entity_type\": \"leads\", \"responsible_user_id\": YOUR_CRM_USER_ID}]"
+              },
+              "parameters": {
+                "__IMTCONN__": null
+              }
+            },
+            {
+              "id": 53,
+              "module": "google-sheets:addRow",
+              "version": 2,
+              "mapper": {
+                "from": "drive",
+                "mode": "select",
+                "values": {
+                  "0": "{{formatDate(now; \"DD.MM.YYYY HH:mm\"; \"Europe/Prague\")}}",
+                  "1": "{{1.object.customer_details.name}}",
+                  "2": "{{lower(1.object.customer_details.email)}}",
+                  "3": "'{{1.object.customer_details.phone}}",
+                  "4": "{{1.object.amount_total / 100}}",
+                  "5": "{{1.object.id}}",
+                  "6": "{{get(first(ifempty(first(map(ifempty(11.body._embedded.leads[1].custom_fields_values; emptyarray); \"values\"; \"field_id\"; YOUR_COURSE_FIELD_ID)); emptyarray)); \"value\")}}",
+                  "7": "{{11.body._embedded.leads[1].responsible_user_id}}",
+                  "8": "{{11.body._embedded.leads[1].price}}",
+                  "9": "https://YOUR-ACCOUNT.kommo.com/leads/detail/{{11.body._embedded.leads[1].id}}",
+                  "10": "e-mail, více leadů, ověřit"
+                },
+                "sheetId": "Zálohy",
+                "spreadsheetId": "/YOUR_SPREADSHEET_ID",
+                "includesHeaders": true,
+                "insertDataOption": "INSERT_ROWS",
+                "useColumnHeaders": false,
+                "valueInputOption": "USER_ENTERED",
+                "insertUnformatted": false
+              },
+              "parameters": {
+                "__IMTCONN__": null
+              }
+            }
+          ]
+        },
+        {
+          "flow": [
+            {
+              "id": 23,
+              "module": "amo-crm:MakeAPICall",
+              "version": 2,
+              "mapper": {
+                "url": "/v4/leads/{{22.body._embedded.leads[1].id}}",
+                "method": "PATCH",
+                "qs": [],
+                "headers": [],
+                "body": "{\"pipeline_id\": YOUR_PIPELINE_ID, \"status_id\": YOUR_STAGE_DEPOSIT_PAID_ID, \"tags_to_add\": [{\"name\": \"V tabulce Zálohy\"}, {\"name\": \"Zkontrolovat zálohu\"}]}"
+              },
+              "parameters": {
+                "__IMTCONN__": null
+              },
+              "filter": {
+                "name": "nic podle e-mailu, jeden podle jména",
+                "conditions": [
+                  [
+                    {
+                      "a": "{{length(ifempty(11.body._embedded.leads; emptyarray))}}",
+                      "b": "0",
+                      "o": "number:equal"
+                    },
+                    {
+                      "a": "{{length(ifempty(22.body._embedded.leads; emptyarray))}}",
+                      "b": "1",
+                      "o": "number:equal"
+                    }
+                  ]
+                ]
+              }
+            },
+            {
+              "id": 24,
+              "module": "amo-crm:MakeAPICall",
+              "version": 2,
+              "mapper": {
+                "url": "/v4/leads/{{22.body._embedded.leads[1].id}}/notes",
+                "method": "POST",
+                "qs": [],
+                "headers": [],
+                "body": "[{\"note_type\": \"common\", \"params\": {\"text\": \"Lead nalezen podle jména (e-mail nesouhlasil), prosím ověřit shodu.\"}}]"
+              },
+              "parameters": {
+                "__IMTCONN__": null
+              }
+            },
+            {
+              "id": 25,
+              "module": "amo-crm:MakeAPICall",
+              "version": 2,
+              "mapper": {
+                "url": "/v4/tasks",
+                "method": "POST",
+                "qs": [],
+                "headers": [],
+                "body": "[{\"text\": \"OVĚŘIT shodu podle jména a připravit smlouvu: {{1.object.customer_details.name}} ({{lower(1.object.customer_details.email)}})\", \"complete_till\": {{formatDate(addHours(now; 2); \"X\")}}, \"entity_id\": {{22.body._embedded.leads[1].id}}, \"entity_type\": \"leads\", \"responsible_user_id\": YOUR_CRM_USER_ID}]"
+              },
+              "parameters": {
+                "__IMTCONN__": null
+              }
+            },
+            {
+              "id": 26,
+              "module": "google-sheets:addRow",
+              "version": 2,
+              "mapper": {
+                "from": "drive",
+                "mode": "select",
+                "values": {
+                  "0": "{{formatDate(now; \"DD.MM.YYYY HH:mm\"; \"Europe/Prague\")}}",
+                  "1": "{{1.object.customer_details.name}}",
+                  "2": "{{lower(1.object.customer_details.email)}}",
+                  "3": "'{{1.object.customer_details.phone}}",
+                  "4": "{{1.object.amount_total / 100}}",
+                  "5": "{{1.object.id}}",
+                  "6": "{{get(first(ifempty(first(map(ifempty(22.body._embedded.leads[1].custom_fields_values; emptyarray); \"values\"; \"field_id\"; YOUR_COURSE_FIELD_ID)); emptyarray)); \"value\")}}",
+                  "7": "{{22.body._embedded.leads[1].responsible_user_id}}",
+                  "8": "{{22.body._embedded.leads[1].price}}",
+                  "9": "https://YOUR-ACCOUNT.kommo.com/leads/detail/{{22.body._embedded.leads[1].id}}",
+                  "10": "jméno, ověřit"
+                },
+                "sheetId": "Zálohy",
+                "spreadsheetId": "/YOUR_SPREADSHEET_ID",
+                "includesHeaders": true,
+                "insertDataOption": "INSERT_ROWS",
+                "useColumnHeaders": false,
+                "valueInputOption": "USER_ENTERED",
+                "insertUnformatted": false
+              },
+              "parameters": {
+                "__IMTCONN__": null
+              }
+            }
+          ]
+        },
+        {
+          "flow": [
+            {
+              "id": 16,
+              "module": "amo-crm:MakeAPICall",
+              "version": 2,
+              "mapper": {
+                "url": "/v4/tasks",
+                "method": "POST",
+                "qs": [],
+                "headers": [],
+                "body": "[{\"text\": \"Záloha zaplacena, lead se nepodařilo jednoznačně najít: {{1.object.customer_details.name}}, {{lower(1.object.customer_details.email)}}. Najít a přesunout ručně.\", \"complete_till\": {{formatDate(addHours(now; 2); \"X\")}}, \"responsible_user_id\": YOUR_CRM_USER_ID}]"
+              },
+              "parameters": {
+                "__IMTCONN__": null
+              },
+              "filter": {
+                "name": "nenalezeno nebo nejednoznačné",
+                "conditions": [
+                  [
+                    {
+                      "a": "{{length(ifempty(11.body._embedded.leads; emptyarray))}}",
+                      "b": "0",
+                      "o": "number:equal"
+                    },
+                    {
+                      "a": "{{length(ifempty(22.body._embedded.leads; emptyarray))}}",
+                      "b": "1",
+                      "o": "number:greater"
+                    }
+                  ],
+                  [
+                    {
+                      "a": "{{length(ifempty(11.body._embedded.leads; emptyarray))}}",
+                      "b": "0",
+                      "o": "number:equal"
+                    },
+                    {
+                      "a": "{{length(ifempty(22.body._embedded.leads; emptyarray))}}",
+                      "b": "0",
+                      "o": "number:equal"
+                    }
+                  ]
+                ]
+              }
+            },
+            {
+              "id": 44,
+              "module": "google-sheets:addRow",
+              "version": 2,
+              "mapper": {
+                "from": "drive",
+                "mode": "select",
+                "values": {
+                  "0": "{{formatDate(now; \"DD.MM.YYYY HH:mm\"; \"Europe/Prague\")}}",
+                  "1": "{{1.object.customer_details.name}}",
+                  "2": "{{lower(1.object.customer_details.email)}}",
+                  "4": "{{1.object.amount_total / 100}}",
+                  "5": "{{1.object.id}}",
+                  "10": "nenalezeno nebo nejednoznačné"
+                },
+                "sheetId": "Zálohy",
+                "spreadsheetId": "/YOUR_SPREADSHEET_ID",
+                "includesHeaders": true,
+                "insertDataOption": "INSERT_ROWS",
+                "useColumnHeaders": false,
+                "valueInputOption": "USER_ENTERED",
+                "insertUnformatted": false
+              },
+              "parameters": {
+                "__IMTCONN__": null
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "instant": true,
+    "version": 1,
+    "scenario": {
+      "roundtrips": 1,
+      "maxErrors": 3,
+      "autoCommit": true,
+      "autoCommitTriggerLast": true,
+      "sequential": true,
+      "confidential": false,
+      "dataloss": false,
+      "dlq": false
+    }
+  },
+  "scheduling": {
+    "type": "immediately"
+  }
+}

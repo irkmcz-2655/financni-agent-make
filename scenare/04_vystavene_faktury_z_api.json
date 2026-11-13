@@ -1,0 +1,254 @@
+{
+  "name": "04 Fakturační API -> Vystavené faktury a pohledávky",
+  "flow": [
+    {
+      "id": 1,
+      "module": "http:ActionSendDataAPIKeyAuth",
+      "version": 3,
+      "mapper": {
+        "url": "https://api.YOUR-INVOICING-APP.cz/api/invoices?page=1&sort=issued_on+desc",
+        "method": "get",
+        "parseResponse": true
+      },
+      "parameters": {
+        "auth": null,
+        "handleErrors": true
+      }
+    },
+    {
+      "id": 90,
+      "module": "google-sheets:updateCell",
+      "version": 2,
+      "mapper": {
+        "cell": "B8",
+        "from": "drive",
+        "value": "{{formatDate(now; \"DD.MM.YYYY HH:mm\"; \"Europe/Prague\")}}",
+        "sheetId": "Kontrola",
+        "spreadsheetId": "/YOUR_SPREADSHEET_ID",
+        "valueInputOption": "RAW"
+      },
+      "parameters": {
+        "__IMTCONN__": null
+      }
+    },
+    {
+      "id": 2,
+      "module": "builtin:BasicFeeder",
+      "version": 1,
+      "mapper": {
+        "array": "{{1.data.invoices}}"
+      },
+      "parameters": {}
+    },
+    {
+      "id": 3,
+      "module": "datastore:AddRecord",
+      "version": 1,
+      "mapper": {
+        "key": "fo_{{2.number}}",
+        "data": {
+          "acc": "FO"
+        },
+        "overwrite": false
+      },
+      "parameters": {
+        "datastore": null
+      },
+      "onerror": [
+        {
+          "id": 5,
+          "module": "builtin:Ignore",
+          "version": 1,
+          "mapper": null,
+          "parameters": {}
+        }
+      ],
+      "filter": {
+        "name": "posledních 14 dní, s částkou",
+        "conditions": [
+          [
+            {
+              "a": "{{formatDate(parseDate(2.issued_on; \"YYYY-MM-DD\"); \"X\")}}",
+              "b": "{{formatDate(addDays(now; -14); \"X\")}}",
+              "o": "number:greaterorequal"
+            },
+            {
+              "a": "{{2.total_float}}",
+              "b": "0",
+              "o": "number:greater"
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "module": "google-sheets:getCell",
+      "version": 2,
+      "mapper": {
+        "cell": "B28",
+        "from": "drive",
+        "sheetId": "Kontrola",
+        "spreadsheetId": "/YOUR_SPREADSHEET_ID",
+        "valueRenderOption": "UNFORMATTED_VALUE"
+      },
+      "parameters": {
+        "__IMTCONN__": null
+      }
+    },
+    {
+      "id": 20,
+      "module": "google-sheets:updateCell",
+      "version": 2,
+      "mapper": {
+        "cell": "H100",
+        "from": "drive",
+        "value": "{{2.buyer.name}}",
+        "sheetId": "Kontrola",
+        "spreadsheetId": "/YOUR_SPREADSHEET_ID",
+        "valueInputOption": "RAW"
+      },
+      "parameters": {
+        "__IMTCONN__": null
+      }
+    },
+    {
+      "id": 21,
+      "module": "google-sheets:getCell",
+      "version": 2,
+      "mapper": {
+        "cell": "H102",
+        "from": "drive",
+        "sheetId": "Kontrola",
+        "spreadsheetId": "/YOUR_SPREADSHEET_ID",
+        "valueRenderOption": "UNFORMATTED_VALUE"
+      },
+      "parameters": {
+        "__IMTCONN__": null
+      }
+    },
+    {
+      "id": 22,
+      "module": "builtin:BasicRouter",
+      "version": 1,
+      "mapper": null,
+      "parameters": {},
+      "routes": [
+        {
+          "flow": [
+            {
+              "id": 24,
+              "module": "google-sheets:updateRow",
+              "version": 2,
+              "mapper": {
+                "from": "drive",
+                "mode": "select",
+                "sheetId": "Vyst.F+pohl.",
+                "rowNumber": "{{21.value}}",
+                "spreadsheetId": "/YOUR_SPREADSHEET_ID",
+                "tableFirstRow": "A1:Z1",
+                "includesHeaders": false,
+                "valueInputOption": "USER_ENTERED",
+                "values": {
+                  "0": "{{2.number}}",
+                  "3": "{{formatDate(parseDate(2.issued_on; \"YYYY-MM-DD\"); \"DD.MM.YYYY\"; \"Europe/Prague\")}}",
+                  "4": "{{formatDate(parseDate(2.due_on; \"YYYY-MM-DD\"); \"DD.MM.YYYY\"; \"Europe/Prague\")}}",
+                  "5": "{{if(2.currency = \"EUR\"; round(2.total_float * Kurz_EUR); replace(2.total_float; \".\"; \",\"))}}",
+                  "6": "=IF(OR(INDEX($A:$A;ROW())=\"\";INDEX($F:$F;ROW())=\"\");\"\";SUMIFS(Banka!$E:$E;Banka!$J:$J;INDEX($A:$A;ROW())))",
+                  "7": "=IF(INDEX($F:$F;ROW())=\"\";\"\";INDEX($F:$F;ROW())-N(INDEX($G:$G;ROW())))",
+                  "8": "=IF(INDEX($F:$F;ROW())=\"\";\"\";IF(INDEX($H:$H;ROW())<0;\"Přeplatek\";IF(INDEX($H:$H;ROW())=0;\"Zaplaceno\";IF(AND(INDEX($E:$E;ROW())<>\"\";INDEX($E:$E;ROW())<TODAY());\"Po splatnosti\";\"Čeká\"))))",
+                  "9": "faktura {{2.number}} vystavena {{formatDate(parseDate(2.issued_on; \"YYYY-MM-DD\"); \"DD.MM.YYYY\"; \"Europe/Prague\")}}"
+                }
+              },
+              "parameters": {
+                "__IMTCONN__": null
+              },
+              "filter": {
+                "name": "je plán: doplnit do plánované řádky",
+                "conditions": [
+                  [
+                    {
+                      "a": "{{21.value}}",
+                      "b": "0",
+                      "o": "number:greater"
+                    }
+                  ]
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "flow": [
+            {
+              "id": 7,
+              "module": "google-sheets:updateRow",
+              "version": 2,
+              "mapper": {
+                "from": "drive",
+                "mode": "select",
+                "sheetId": "Vyst.F+pohl.",
+                "rowNumber": "{{6.value}}",
+                "spreadsheetId": "/YOUR_SPREADSHEET_ID",
+                "tableFirstRow": "A1:Z1",
+                "includesHeaders": false,
+                "valueInputOption": "USER_ENTERED",
+                "values": {
+                  "0": "{{2.number}}",
+                  "1": "{{2.buyer.name}}",
+                  "2": "{{if(contains(2.buyer.name; \"Úřad práce\"); \"Úřad práce\"; \"Kurz\")}}",
+                  "3": "{{formatDate(parseDate(2.issued_on; \"YYYY-MM-DD\"); \"DD.MM.YYYY\"; \"Europe/Prague\")}}",
+                  "4": "{{formatDate(parseDate(2.due_on; \"YYYY-MM-DD\"); \"DD.MM.YYYY\"; \"Europe/Prague\")}}",
+                  "5": "{{if(2.currency = \"EUR\"; round(2.total_float * Kurz_EUR); replace(2.total_float; \".\"; \",\"))}}",
+                  "6": "=IF(OR(INDEX($A:$A;ROW())=\"\";INDEX($F:$F;ROW())=\"\");\"\";SUMIFS(Banka!$E:$E;Banka!$J:$J;INDEX($A:$A;ROW())))",
+                  "7": "=IF(INDEX($F:$F;ROW())=\"\";\"\";INDEX($F:$F;ROW())-N(INDEX($G:$G;ROW())))",
+                  "8": "=IF(INDEX($F:$F;ROW())=\"\";\"\";IF(INDEX($H:$H;ROW())<0;\"Přeplatek\";IF(INDEX($H:$H;ROW())=0;\"Zaplaceno\";IF(AND(INDEX($E:$E;ROW())<>\"\";INDEX($E:$E;ROW())<TODAY());\"Po splatnosti\";\"Čeká\"))))",
+                  "9": "auto z API; plánovaná řádka klienta nenalezena, zkontrolovat ručně"
+                }
+              },
+              "parameters": {
+                "__IMTCONN__": null
+              },
+              "filter": {
+                "name": "není plán: nová řádka",
+                "conditions": [
+                  [
+                    {
+                      "a": "{{21.value}}",
+                      "o": "notexist"
+                    }
+                  ],
+                  [
+                    {
+                      "a": "{{21.value}}",
+                      "b": "",
+                      "o": "text:equal"
+                    }
+                  ]
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "instant": false,
+    "version": 1,
+    "scenario": {
+      "roundtrips": 1,
+      "maxErrors": 3,
+      "autoCommit": true,
+      "autoCommitTriggerLast": true,
+      "sequential": true,
+      "confidential": false,
+      "dataloss": false,
+      "dlq": false
+    }
+  },
+  "scheduling": {
+    "type": "daily",
+    "time": "03:35"
+  }
+}

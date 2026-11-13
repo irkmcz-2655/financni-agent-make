@@ -1,0 +1,332 @@
+{
+  "name": "01 Přijaté faktury: Gmail -> měsíční složka + Inbox",
+  "flow": [
+    {
+      "id": 1,
+      "module": "google-email:triggerWatchNewEmails",
+      "version": 4,
+      "mapper": {},
+      "parameters": {
+        "q": "newer_than:75d has:attachment filename:pdf -from:me (faktura OR faktúra OR invoice OR receipt OR doklad)",
+        "limit": 20,
+        "markSeen": false,
+        "filterType": "gmailSearch",
+        "__IMTCONN__": null
+      }
+    },
+    {
+      "id": 2,
+      "module": "google-email:listEmailAttachments",
+      "version": 4,
+      "mapper": {
+        "include": "attachment",
+        "messageId": "{{1.id}}",
+        "returnAttachmentData": true
+      },
+      "parameters": {
+        "__IMTCONN__": null
+      }
+    },
+    {
+      "id": 3,
+      "module": "datastore:AddRecord",
+      "version": 1,
+      "mapper": {
+        "key": "inv_{{1.id}}_{{2.filename}}",
+        "data": {
+          "acc": "Faktura"
+        },
+        "overwrite": false
+      },
+      "parameters": {
+        "datastore": null
+      },
+      "onerror": [
+        {
+          "id": 13,
+          "module": "builtin:Ignore",
+          "version": 1,
+          "mapper": null,
+          "parameters": {}
+        }
+      ],
+      "filter": {
+        "name": "jen PDF",
+        "conditions": [
+          [
+            {
+              "a": "{{lower(2.filename)}}",
+              "b": ".pdf",
+              "o": "text:contain"
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "module": "google-drive:ActionUploadFile",
+      "version": 3,
+      "mapper": {
+        "data": "{{2.data}}",
+        "convert": true,
+        "destination": "personal",
+        "fileName": "ocr_{{2.filename}}",
+        "folderId": "/YOUR_TEMP_FOLDER_ID"
+      },
+      "parameters": {
+        "account": null
+      },
+      "onerror": [
+        {
+          "id": 14,
+          "module": "google-sheets:addRow",
+          "version": 2,
+          "mapper": {
+            "from": "drive",
+            "mode": "select",
+            "values": {
+              "0": "{{formatDate(now; \"DD.MM.YYYY HH:mm\"; \"Europe/Prague\")}}",
+              "1": "{{formatDate(1.internalDate; \"DD.MM.YYYY\"; \"Europe/Prague\")}}",
+              "2": "{{substring(1.snippet; 0; 120)}}",
+              "3": "{{2.filename}}",
+              "4": "",
+              "5": "schranka-a@example.com",
+              "6": "{{1.id}}",
+              "7": "ne: chyba čtení, zkontrolovat ručně",
+              "8": "{{1.fromEmail}}",
+              "9": "{{1.subject}}"
+            },
+            "sheetId": "Inbox-faktury",
+            "spreadsheetId": "/YOUR_SPREADSHEET_ID",
+            "includesHeaders": true,
+            "insertDataOption": "INSERT_ROWS",
+            "useColumnHeaders": false,
+            "valueInputOption": "USER_ENTERED",
+            "insertUnformatted": false
+          },
+          "parameters": {
+            "__IMTCONN__": null
+          }
+        },
+        {
+          "id": 15,
+          "module": "builtin:Ignore",
+          "version": 1,
+          "mapper": null,
+          "parameters": {}
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "module": "google-drive:ActionGetFile",
+      "version": 3,
+      "mapper": {
+        "id": "{{4.id}}"
+      },
+      "parameters": {
+        "account": null,
+        "formatDocuments": "text/plain"
+      }
+    },
+    {
+      "id": 6,
+      "module": "google-drive:ActionDeleteFile",
+      "version": 3,
+      "mapper": {
+        "id": "{{4.id}}"
+      },
+      "parameters": {
+        "account": null
+      }
+    },
+    {
+      "id": 7,
+      "module": "datastore:GetRecord",
+      "version": 1,
+      "mapper": {
+        "key": "{{formatDate(1.internalDate; \"YYYY-MM\"; \"Europe/Prague\")}}",
+        "returnWrapped": false
+      },
+      "parameters": {
+        "datastore": null
+      }
+    },
+    {
+      "id": 8,
+      "module": "builtin:BasicRouter",
+      "version": 1,
+      "mapper": null,
+      "parameters": {},
+      "routes": [
+        {
+          "flow": [
+            {
+              "id": 9,
+              "module": "google-drive:ActionUploadFile",
+              "version": 3,
+              "mapper": {
+                "data": "{{2.data}}",
+                "convert": false,
+                "destination": "personal",
+                "fileName": "{{formatDate(1.internalDate; \"YYYY-MM-DD\")}}_{{2.filename}}",
+                "folderId": "/{{ifempty(7.id; \"YOUR_FALLBACK_FOLDER_ID\")}}"
+              },
+              "parameters": {
+                "account": null
+              },
+              "filter": {
+                "name": "faktura na naši firmu",
+                "conditions": [
+                  [
+                    {
+                      "a": "{{toString(5.data)}}",
+                      "b": "12\\s?345\\s?678|vase firma s\\.r\\.o",
+                      "o": "text:pattern:ci"
+                    },
+                    {
+                      "a": "{{toString(5.data)}}",
+                      "b": "faktur|invoice|receipt|daňový doklad|dobropis|proforma",
+                      "o": "text:pattern:ci"
+                    },
+                    {
+                      "a": "{{2.filename}}",
+                      "b": "mezd|hlášení|příkaz|výplat|soupis|přiznání|registrace|podklady_k|potvrzení_o",
+                      "o": "text:notpattern:ci"
+                    }
+                  ]
+                ]
+              }
+            },
+            {
+              "id": 10,
+              "module": "google-sheets:addRow",
+              "version": 2,
+              "mapper": {
+                "from": "drive",
+                "mode": "select",
+                "values": {
+                  "0": "{{formatDate(now; \"DD.MM.YYYY HH:mm\"; \"Europe/Prague\")}}",
+                  "1": "{{formatDate(1.internalDate; \"DD.MM.YYYY\"; \"Europe/Prague\")}}",
+                  "2": "{{substring(1.snippet; 0; 120)}}",
+                  "3": "{{2.filename}}",
+                  "4": "{{9.alternateLink}}",
+                  "5": "schranka-a@example.com",
+                  "6": "{{1.id}}",
+                  "7": "ne",
+                  "8": "{{1.fromEmail}}",
+                  "9": "{{1.subject}}"
+                },
+                "sheetId": "Inbox-faktury",
+                "spreadsheetId": "/YOUR_SPREADSHEET_ID",
+                "includesHeaders": true,
+                "insertDataOption": "INSERT_ROWS",
+                "useColumnHeaders": false,
+                "valueInputOption": "USER_ENTERED",
+                "insertUnformatted": false
+              },
+              "parameters": {
+                "__IMTCONN__": null
+              }
+            }
+          ]
+        },
+        {
+          "flow": [
+            {
+              "id": 11,
+              "module": "google-drive:ActionUploadFile",
+              "version": 3,
+              "mapper": {
+                "data": "{{2.data}}",
+                "convert": false,
+                "destination": "personal",
+                "fileName": "{{formatDate(1.internalDate; \"YYYY-MM-DD\")}}_{{2.filename}}",
+                "folderId": "/YOUR_NOT_FOR_ACCOUNTANT_FOLDER_ID"
+              },
+              "parameters": {
+                "account": null
+              },
+              "filter": {
+                "name": "jiný odběratel nebo není doklad",
+                "conditions": [
+                  [
+                    {
+                      "a": "{{toString(5.data)}}",
+                      "b": "12\\s?345\\s?678|vase firma s\\.r\\.o",
+                      "o": "text:notpattern:ci"
+                    }
+                  ],
+                  [
+                    {
+                      "a": "{{toString(5.data)}}",
+                      "b": "faktur|invoice|receipt|daňový doklad|dobropis|proforma",
+                      "o": "text:notpattern:ci"
+                    }
+                  ],
+                  [
+                    {
+                      "a": "{{2.filename}}",
+                      "b": "mezd|hlášení|příkaz|výplat|soupis|přiznání|registrace|podklady_k|potvrzení_o",
+                      "o": "text:pattern:ci"
+                    }
+                  ]
+                ]
+              }
+            },
+            {
+              "id": 12,
+              "module": "google-sheets:addRow",
+              "version": 2,
+              "mapper": {
+                "from": "drive",
+                "mode": "select",
+                "values": {
+                  "0": "{{formatDate(now; \"DD.MM.YYYY HH:mm\"; \"Europe/Prague\")}}",
+                  "1": "{{formatDate(1.internalDate; \"DD.MM.YYYY\"; \"Europe/Prague\")}}",
+                  "2": "{{substring(1.snippet; 0; 120)}}",
+                  "3": "{{2.filename}}",
+                  "4": "{{11.alternateLink}}",
+                  "5": "schranka-a@example.com",
+                  "6": "{{1.id}}",
+                  "7": "mimo firmu / není faktura",
+                  "8": "{{1.fromEmail}}",
+                  "9": "{{1.subject}}"
+                },
+                "sheetId": "Inbox-faktury",
+                "spreadsheetId": "/YOUR_SPREADSHEET_ID",
+                "includesHeaders": true,
+                "insertDataOption": "INSERT_ROWS",
+                "useColumnHeaders": false,
+                "valueInputOption": "USER_ENTERED",
+                "insertUnformatted": false
+              },
+              "parameters": {
+                "__IMTCONN__": null
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "instant": false,
+    "version": 1,
+    "scenario": {
+      "roundtrips": 1,
+      "maxErrors": 3,
+      "autoCommit": true,
+      "autoCommitTriggerLast": true,
+      "sequential": true,
+      "confidential": false,
+      "dataloss": false,
+      "dlq": false
+    }
+  },
+  "scheduling": {
+    "type": "daily",
+    "time": "02:30"
+  }
+}

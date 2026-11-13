@@ -1,0 +1,221 @@
+{
+  "name": "02 Claude čte PDF doklad -> list Přijaté faktury",
+  "flow": [
+    {
+      "id": 1,
+      "module": "google-sheets:filterRows",
+      "version": 2,
+      "mapper": {
+        "from": "drive",
+        "limit": 15,
+        "sheetId": "Inbox-faktury",
+        "spreadsheetId": "/YOUR_SPREADSHEET_ID",
+        "tableFirstRow": "A1:J1",
+        "includesHeaders": true,
+        "filter": [
+          [
+            {
+              "a": "H",
+              "b": "ne",
+              "o": "text:equal"
+            }
+          ]
+        ]
+      },
+      "parameters": {
+        "__IMTCONN__": null
+      }
+    },
+    {
+      "id": 2,
+      "module": "google-drive:ActionGetFile",
+      "version": 3,
+      "mapper": {
+        "id": "{{get(split(1.`4`; \"/\"); 5)}}"
+      },
+      "parameters": {
+        "account": null,
+        "formatDocuments": "text/plain"
+      },
+      "filter": {
+        "name": "je odkaz na Drive",
+        "conditions": [
+          [
+            {
+              "a": "{{1.`4`}}",
+              "b": "drive.google.com/file/d/",
+              "o": "text:contain"
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "module": "anthropic-claude:createAMessage",
+      "version": 1,
+      "mapper": {
+        "model": "claude-sonnet-5-5",
+        "max_tokens": 600,
+        "messages": [
+          {
+            "role": "user",
+            "inputType": "multiple",
+            "content": [
+              {
+                "type": "document",
+                "pdfFileData": "{{2.data}}",
+                "pdfFileName": "{{1.`3`}}"
+              },
+              {
+                "type": "text",
+                "text": "Read this PDF and answer with ONE single line, exactly 10 fields separated by the character | and nothing else (no markdown, no explanation).\nFields in order:\n1 KIND: FIRMA if the buyer is OUR COMPANY s.r.o. (ICO 12345678); ALSO FIRMA for Apple, Google Play, Google One or Meta receipts even when the buyer is not named (the owner confirmed these are company expenses); OSVC if the buyer is the owner as a sole trader; POTVRZENI if the document is only a payment confirmation that repeats an invoice; JINE if the buyer is anyone else; NENI if it is not an invoice, receipt or tax document (contract, payroll, tax return, reminder, ticket).\n2 SUPPLIER name\n3 DOC_NUMBER\n4 VS (variable symbol)\n5 ISSUE_DATE as DD.MM.YYYY\n6 DUE_DATE as DD.MM.YYYY\n7 AMOUNT total to pay with decimal comma and no spaces, for example 8100,14\n8 CURRENCY (CZK, EUR, USD)\n9 CATEGORY, choose one: SaaS; Lektor / služby; Provoz kanceláře; Pronájem prostor; Právní služby; Účetní služby; Marketing / propagace; Občerstvení / akce; Cestovné; Jiné\n10 NOTE in Czech, max 15 words\nIMPORTANT: for any unknown or empty field write the single character - so that there are always exactly 10 fields. Never use the | character inside a field."
+              }
+            ]
+          }
+        ]
+      },
+      "parameters": {
+        "__IMTCONN__": null
+      }
+    },
+    {
+      "id": 4,
+      "module": "builtin:BasicRouter",
+      "version": 1,
+      "mapper": null,
+      "parameters": {},
+      "routes": [
+        {
+          "flow": [
+            {
+              "id": 5,
+              "module": "google-sheets:getCell",
+              "version": 2,
+              "mapper": {
+                "cell": "B30",
+                "from": "drive",
+                "sheetId": "Kontrola",
+                "spreadsheetId": "/YOUR_SPREADSHEET_ID",
+                "valueRenderOption": "FORMATTED_VALUE"
+              },
+              "parameters": {
+                "__IMTCONN__": null
+              },
+              "filter": {
+                "name": "doklad na firmu",
+                "conditions": [
+                  [
+                    {
+                      "a": "{{trim(get(split(3.content[1].text; \"|\"); 1))}}",
+                      "b": "FIRMA",
+                      "o": "text:equal"
+                    }
+                  ]
+                ]
+              }
+            },
+            {
+              "id": 6,
+              "module": "google-sheets:updateRow",
+              "version": 2,
+              "mapper": {
+                "from": "drive",
+                "mode": "select",
+                "sheetId": "Př.F",
+                "rowNumber": "{{5.value}}",
+                "spreadsheetId": "/YOUR_SPREADSHEET_ID",
+                "tableFirstRow": "A1:Z1",
+                "includesHeaders": false,
+                "valueInputOption": "USER_ENTERED",
+                "values": {
+                  "0": "{{if(trim(get(split(3.content[1].text; \"|\"); 2))=\"-\";\"\";trim(get(split(3.content[1].text; \"|\"); 2)))}}",
+                  "1": "{{if(trim(get(split(3.content[1].text; \"|\"); 3))=\"-\";\"\";trim(get(split(3.content[1].text; \"|\"); 3)))}}",
+                  "2": "{{if(trim(get(split(3.content[1].text; \"|\"); 4))=\"-\";\"\";trim(get(split(3.content[1].text; \"|\"); 4)))}}",
+                  "3": "{{if(trim(get(split(3.content[1].text; \"|\"); 5))=\"-\";\"\";trim(get(split(3.content[1].text; \"|\"); 5)))}}",
+                  "4": "{{if(trim(get(split(3.content[1].text; \"|\"); 6))=\"-\";\"\";trim(get(split(3.content[1].text; \"|\"); 6)))}}",
+                  "5": "{{if(trim(get(split(3.content[1].text; \"|\"); 7))=\"-\";\"\";trim(get(split(3.content[1].text; \"|\"); 7)))}}",
+                  "6": "{{if(trim(get(split(3.content[1].text; \"|\"); 8))=\"-\";\"\";trim(get(split(3.content[1].text; \"|\"); 8)))}}",
+                  "9": "FIRMA",
+                  "10": "{{if(trim(get(split(3.content[1].text; \"|\"); 9))=\"-\";\"\";trim(get(split(3.content[1].text; \"|\"); 9)))}}",
+                  "11": "{{1.`5`}}",
+                  "12": "{{1.`4`}}",
+                  "13": "{{if(trim(get(split(3.content[1].text; \"|\"); 10))=\"-\";\"\";trim(get(split(3.content[1].text; \"|\"); 10)))}} (Claude z PDF)"
+                }
+              },
+              "parameters": {
+                "__IMTCONN__": null
+              }
+            },
+            {
+              "id": 7,
+              "module": "google-sheets:updateCell",
+              "version": 2,
+              "mapper": {
+                "cell": "H{{1.__ROW_NUMBER__}}",
+                "from": "drive",
+                "value": "ano (Claude)",
+                "sheetId": "Inbox-faktury",
+                "spreadsheetId": "/YOUR_SPREADSHEET_ID",
+                "valueInputOption": "USER_ENTERED"
+              },
+              "parameters": {
+                "__IMTCONN__": null
+              }
+            }
+          ]
+        },
+        {
+          "flow": [
+            {
+              "id": 8,
+              "module": "google-sheets:updateCell",
+              "version": 2,
+              "mapper": {
+                "cell": "H{{1.__ROW_NUMBER__}}",
+                "from": "drive",
+                "value": "{{switch(trim(get(split(3.content[1].text; \"|\"); 1)); \"OSVC\"; \"ne: faktura na OSVČ\"; \"NENI\"; \"ne: není faktura\"; \"POTVRZENI\"; \"ne: potvrzení k faktuře\"; \"ne: jiný odběratel\")}}",
+                "sheetId": "Inbox-faktury",
+                "spreadsheetId": "/YOUR_SPREADSHEET_ID",
+                "valueInputOption": "USER_ENTERED"
+              },
+              "parameters": {
+                "__IMTCONN__": null
+              },
+              "filter": {
+                "name": "není doklad na firmu",
+                "conditions": [
+                  [
+                    {
+                      "a": "{{trim(get(split(3.content[1].text; \"|\"); 1))}}",
+                      "b": "FIRMA",
+                      "o": "text:notequal"
+                    }
+                  ]
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "instant": false,
+    "version": 1,
+    "scenario": {
+      "roundtrips": 1,
+      "maxErrors": 3,
+      "autoCommit": true,
+      "autoCommitTriggerLast": true,
+      "sequential": true,
+      "confidential": false,
+      "dataloss": false,
+      "dlq": false
+    }
+  },
+  "scheduling": {
+    "type": "daily",
+    "time": "03:00"
+  }
+}

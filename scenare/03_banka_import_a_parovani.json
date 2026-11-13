@@ -1,0 +1,163 @@
+{
+  "name": "03 Banka API -> Banka_import + list Banka s párováním",
+  "flow": [
+    {
+      "id": 1,
+      "module": "http:ActionSendDataAPIKeyAuth",
+      "version": 3,
+      "mapper": {
+        "url": "https://api.YOUR-BANK.cz/aisp/my/accounts/YOUR_ACCOUNT_ID/transactions?size=100&fromDate={{formatDate(addDays(now; -3); \"YYYY-MM-DD\"; \"Europe/Prague\")}}&toDate={{formatDate(now; \"YYYY-MM-DD\"; \"Europe/Prague\")}}",
+        "method": "get",
+        "parseResponse": true
+      },
+      "parameters": {
+        "auth": null,
+        "handleErrors": false
+      }
+    },
+    {
+      "id": 90,
+      "module": "google-sheets:updateCell",
+      "version": 2,
+      "mapper": {
+        "cell": "B5",
+        "from": "drive",
+        "value": "{{formatDate(now; \"DD.MM.YYYY HH:mm\"; \"Europe/Prague\")}}",
+        "sheetId": "Kontrola",
+        "spreadsheetId": "/YOUR_SPREADSHEET_ID",
+        "valueInputOption": "RAW"
+      },
+      "parameters": {
+        "__IMTCONN__": null
+      }
+    },
+    {
+      "id": 2,
+      "module": "builtin:BasicFeeder",
+      "version": 1,
+      "mapper": {
+        "array": "{{1.data.transactions}}"
+      },
+      "parameters": {}
+    },
+    {
+      "id": 3,
+      "module": "datastore:AddRecord",
+      "version": 1,
+      "mapper": {
+        "key": "{{2.entryReference}}",
+        "data": {
+          "acc": "Firma"
+        },
+        "overwrite": false
+      },
+      "parameters": {
+        "datastore": null
+      },
+      "onerror": [
+        {
+          "id": 5,
+          "module": "builtin:Ignore",
+          "version": 1,
+          "mapper": null,
+          "parameters": {}
+        }
+      ],
+      "filter": {
+        "name": "jen zaúčtované",
+        "conditions": [
+          [
+            {
+              "a": "{{2.status}}",
+              "b": "BOOK",
+              "o": "text:equal"
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "module": "google-sheets:addRow",
+      "version": 2,
+      "mapper": {
+        "from": "drive",
+        "mode": "select",
+        "values": {
+          "0": "Firma",
+          "1": "{{2.bookingDate.date}}",
+          "2": "{{2.creditDebitIndicator}}",
+          "3": "{{replace(2.amount.value; \".\"; \",\")}}",
+          "4": "{{replace(2.entryDetails.transactionDetails.remittanceInformation.structured.creditorReferenceInformation.reference; \"VS:\"; \"\")}}",
+          "5": "{{2.entryDetails.transactionDetails.remittanceInformation.unstructured}}",
+          "6": "{{if(2.creditDebitIndicator = \"DBIT\"; 2.entryDetails.transactionDetails.relatedParties.creditorAccount.identification.other.identification; 2.entryDetails.transactionDetails.relatedParties.debtorAccount.identification.other.identification)}}",
+          "7": "{{2.entryReference}}",
+          "9": "{{2.status}}",
+          "10": "{{formatDate(now; \"DD.MM.YYYY HH:mm\"; \"Europe/Prague\")}}"
+        },
+        "sheetId": "Banka_import",
+        "spreadsheetId": "/YOUR_SPREADSHEET_ID",
+        "includesHeaders": true,
+        "insertDataOption": "INSERT_ROWS",
+        "useColumnHeaders": false,
+        "valueInputOption": "RAW",
+        "insertUnformatted": false
+      },
+      "parameters": {
+        "__IMTCONN__": null
+      }
+    },
+    {
+      "id": 6,
+      "module": "google-sheets:addRow",
+      "version": 2,
+      "mapper": {
+        "from": "drive",
+        "mode": "select",
+        "values": {
+          "0": "{{formatDate(parseDate(2.bookingDate.date; \"YYYY-MM-DD\"); \"DD.MM.YYYY\"; \"Europe/Prague\")}}",
+          "1": "Firemní účet",
+          "2": "=IFERROR(VLOOKUP(INDEX(L:L;ROW());Pravidla!$A:$E;3;0);\"Firma\")",
+          "3": "{{ifempty(ifempty(2.entryDetails.transactionDetails.relatedParties.creditor.name; 2.entryDetails.transactionDetails.relatedParties.debtor.name); \"Platba kartou\")}}",
+          "4": "{{if(2.creditDebitIndicator = \"CRDT\"; replace(2.amount.value; \".\"; \",\"); \"\")}}",
+          "5": "{{if(2.creditDebitIndicator = \"DBIT\"; replace(2.amount.value; \".\"; \",\"); \"\")}}",
+          "6": "=IFERROR(VLOOKUP(INDEX(L:L;ROW());Pravidla!$A:$E;4;0);IF(INDEX(E:E;ROW())<>\"\";\"Prijem-klienti\";\"Nezarazeno\"))",
+          "7": "=IFERROR(VLOOKUP(INDEX(L:L;ROW());Pravidla!$A:$E;5;0);IF(INDEX(E:E;ROW())<>\"\";\"Prijem\";\"Nezarazeno\"))",
+          "8": "auto z bankovního API",
+          "9": "{{first(split(replace(ifempty(2.entryDetails.transactionDetails.remittanceInformation.structured.creditorReferenceInformation.reference; \"\"); \"VS:\"; \"\"); \" \"))}}",
+          "11": "F|{{2.creditDebitIndicator}}|{{if(2.creditDebitIndicator = \"DBIT\"; 2.entryDetails.transactionDetails.relatedParties.creditorAccount.identification.other.identification; 2.entryDetails.transactionDetails.relatedParties.debtorAccount.identification.other.identification)}}",
+          "12": "{{2.entryReference}}",
+          "16": "=LET(rw;ROW();t;INDEX($C:$C;rw);inc;INDEX($E:$E;rw)<>\"\";vs;SUBSTITUTE(TO_TEXT(INDEX($J:$J;rw));\"-\";\"\");amt;N(INDEX($F:$F;rw));dt;N(INDEX($A:$A;rw));d;LOWER(TO_TEXT(INDEX($D:$D;rw)));kw;IFERROR(VLOOKUP(TRUE;ARRAYFORMULA({REGEXMATCH(d;Pravidla!$G$2:$G$30)\\Pravidla!$H$2:$H$30});2;0);\"\");tol;Kontrola!$B$35/100;pa;ARRAYFORMULA(LOWER('Př.F'!$A$5:$A$400));pb;ARRAYFORMULA(SUBSTITUTE(TO_TEXT('Př.F'!$B$5:$B$400);\"-\";\"\"));pf;ARRAYFORMULA(N('Př.F'!$F$5:$F$400));pg;'Př.F'!$G$5:$G$400;czk;ARRAYFORMULA(IF(pg=\"EUR\";pf*Kontrola!$B$33;IF(pg=\"USD\";pf*Kontrola!$B$34;pf)));pd;ARRAYFORMULA(N('Př.F'!$D$5:$D$400));vsRow;IF(vs<>\"\";IFERROR(MATCH(vs;pb;0);0);0);kwRow;IF(kw=\"\";0;IFERROR(MATCH(1;ARRAYFORMULA(REGEXMATCH(pa;kw)*(ABS(czk-amt)<=amt*tol)*(pd-dt<=10)*(dt-pd<=40));0);0));amRow;IFERROR(MATCH(1;ARRAYFORMULA((ABS(czk-amt)<=IF(pg=\"CZK\";1;amt*tol))*(ABS(pd-dt)<=5));0);0);IF(OR(t<>\"Firma\";inc);0;IF(vsRow>0;vsRow;IF(kwRow>0;1000+kwRow;IF(amRow>0;2000+amRow;0)))))"
+        },
+        "sheetId": "Banka",
+        "spreadsheetId": "/YOUR_SPREADSHEET_ID",
+        "includesHeaders": true,
+        "insertDataOption": "INSERT_ROWS",
+        "useColumnHeaders": false,
+        "valueInputOption": "USER_ENTERED",
+        "insertUnformatted": false
+      },
+      "parameters": {
+        "__IMTCONN__": null
+      }
+    }
+  ],
+  "metadata": {
+    "instant": false,
+    "version": 1,
+    "scenario": {
+      "roundtrips": 1,
+      "maxErrors": 3,
+      "autoCommit": true,
+      "autoCommitTriggerLast": true,
+      "sequential": true,
+      "confidential": false,
+      "dataloss": false,
+      "dlq": false
+    }
+  },
+  "scheduling": {
+    "type": "daily",
+    "time": "03:20"
+  }
+}
